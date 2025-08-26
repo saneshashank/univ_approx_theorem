@@ -3,12 +3,12 @@ import numpy as np
 
 app = Flask(__name__)
 
-# -------- Target functions (continuous ones show UAT best) --------
+# -------- Target functions --------
 def f_sine(x):   return np.sin(2 * np.pi * x)
 def f_abs(x):    return np.abs(x - 0.5)
 def f_bump(x):   return np.exp(-60.0 * (x - 0.5) ** 2)
 def f_cubic(x):  return (2 * x - 1) ** 3
-def f_square(x): return 0.8 * np.sign(np.sin(2 * np.pi * x))  # discontinuous (for fun)
+def f_square(x): return 0.8 * np.sign(np.sin(2 * np.pi * x))  # discontinuous demo
 
 TARGETS = {
     "sine":   ("sin(2πx)", f_sine),
@@ -29,38 +29,77 @@ ACTIVATIONS = {
     "sigmoid": ("sigmoid", act_sigmoid),
 }
 
-def build_random_features(x, width, activation_fn, rng):
+# ---- Utilities ----
+def parse_layers(s: str):
     """
-    Random kitchen-sink features: phi(x) = activation(x * W + b)
-    x: shape (N,)
-    returns Phi: shape (N, width)
+    Parse comma-separated widths -> list[int], enforce 1..2048 per layer and depth <= 10.
     """
-    x = x.reshape(-1, 1)  # (N, 1)
-    # Heuristic scales so different activations behave nicely without tuning
-    W = rng.normal(loc=0.0, scale=2.0, size=(1, width))        # (1, width)
-    b = rng.uniform(low=-np.pi, high=np.pi, size=(width,))      # (width,)
-    Z = x @ W + b  # (N, width)
-    Phi = activation_fn(Z)
-    return Phi
+    try:
+        parts = [p.strip() for p in s.split(",") if p.strip()]
+        if not parts:
+            return [64]
+        widths = []
+        for p in parts[:10]:  # cap depth to 10
+            w = int(p)
+            if w < 1:
+                w = 1
+            if w > 2048:
+                w = 2048
+            widths.append(w)
+        return widths
+    except Exception:
+        return None
+
+def he_scale(fan_in, act_key):
+    # Reasonable default scales so different activations behave nicely
+    if act_key == "relu":
+        return np.sqrt(2.0 / max(1, fan_in))
+    else:  # tanh / sigmoid
+        return 1.0 / np.sqrt(max(1, fan_in))
+
+def init_random_params(layer_sizes, act_key, rng):
+    """
+    Build a stack of (W, b) for a network mapping R^1 -> R^{layer_sizes[-1]} features.
+    Returns: list of (W, b), where W: (in_dim, out_dim), b: (out_dim,)
+    """
+    params = []
+    in_dim = 1
+    for width in layer_sizes:
+        scale = he_scale(in_dim, act_key)
+        W = rng.normal(0.0, scale, size=(in_dim, width))
+        b = rng.uniform(-1.0, 1.0, size=(width,))
+        params.append((W, b))
+        in_dim = width
+    return params
+
+def forward_features(x, params, act_fn):
+    """
+    Forward pass through all hidden layers to produce random features.
+    x: (N,)
+    returns Phi: (N, last_width)
+    """
+    H = x.reshape(-1, 1)  # (N, 1)
+    for (W, b) in params:
+        H = act_fn(H @ W + b)  # broadcast b
+    return H
 
 def fit_ridge_closed_form(Phi, y, lam):
     """
-    Ridge regression: w = (Phi^T Phi + lam I)^-1 Phi^T y
-    We also add a bias column.
+    Ridge regression on top of features (with bias).
     """
     N, W = Phi.shape
     Phi_aug = np.concatenate([np.ones((N, 1)), Phi], axis=1)  # bias term
     A = Phi_aug.T @ Phi_aug + lam * np.eye(W + 1)
     b = Phi_aug.T @ y
-    w = np.linalg.solve(A, b)  # (W+1,)
+    w = np.linalg.solve(A, b)
     return w  # includes bias as w[0]
 
-def predict(Phi, w):
+def predict_with_weights(Phi, w):
     N, W = Phi.shape
     Phi_aug = np.concatenate([np.ones((N, 1)), Phi], axis=1)
     return Phi_aug @ w
 
-def make_grid(n=400):
+def make_grid(n=500):
     return np.linspace(0.0, 1.0, n)
 
 @app.route("/")
@@ -76,7 +115,7 @@ def approximate():
     # --- Parse UI params ---
     target_key = request.args.get("target", "sine")
     act_key    = request.args.get("activation", "tanh")
-    width      = max(1, min(int(request.args.get("width", 50)), 2048))
+    layers_str = request.args.get("layers", "64")
     lam        = float(request.args.get("lam", 1e-3))
     seed       = int(request.args.get("seed", 0))
     noise_std  = float(request.args.get("noise", 0.0))
@@ -84,26 +123,34 @@ def approximate():
     if target_key not in TARGETS or act_key not in ACTIVATIONS:
         return jsonify({"error": "Invalid target or activation"}), 400
 
+    layer_sizes = parse_layers(layers_str)
+    if layer_sizes is None:
+        return jsonify({"error": "Invalid layers format. Use comma-separated integers like 128,64,32"}), 400
+    if len(layer_sizes) > 10:
+        return jsonify({"error": "Max 10 layers allowed"}), 400
+
     target_name, f = TARGETS[target_key]
     act_name, act_fn = ACTIVATIONS[act_key]
-
     rng = np.random.default_rng(seed)
 
-    # Training data (small but enough)
+    # Training data
     x_train = np.linspace(0.0, 1.0, 512)
     y_train = f(x_train)
     if noise_std > 0:
         y_train = y_train + rng.normal(0, noise_std, size=y_train.shape)
 
-    # Build random features and fit ridge
-    Phi = build_random_features(x_train, width, act_fn, rng)
-    w = fit_ridge_closed_form(Phi, y_train, lam)
+    # Initialize a fixed random deep net and reuse it for grid eval
+    params = init_random_params(layer_sizes, act_key, rng)
+
+    # Fit ridge on top of deep random features
+    Phi_train = forward_features(x_train, params, act_fn)
+    w = fit_ridge_closed_form(Phi_train, y_train, lam)
 
     # Evaluate on a grid for plotting
     x_grid = make_grid(500)
     y_true = f(x_grid)
-    Phi_grid = build_random_features(x_grid, width, act_fn, rng)
-    y_pred = predict(Phi_grid, w)
+    Phi_grid = forward_features(x_grid, params, act_fn)
+    y_pred = predict_with_weights(Phi_grid, w)
 
     mse = float(np.mean((y_true - y_pred) ** 2))
 
@@ -115,7 +162,8 @@ def approximate():
         "params": {
             "target": target_name,
             "activation": act_name,
-            "width": width,
+            "layers": layer_sizes,
+            "depth": len(layer_sizes),
             "lambda": lam,
             "seed": seed,
             "noise": noise_std
