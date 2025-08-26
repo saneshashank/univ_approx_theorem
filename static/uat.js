@@ -15,6 +15,7 @@ const els = {
   mseVal: document.getElementById("mseVal"),
   paramsText: document.getElementById("paramsText"),
   chart: document.getElementById("chart"),
+  residual: document.getElementById("residual"),
 
   randomize: document.getElementById("randomize"),
   presetWide: document.getElementById("presetWide"),
@@ -126,17 +127,29 @@ async function fetchApprox() {
   const yTrue = data.y_true;
   const yPred = data.y_pred;
 
+  // --- Main chart ---
   const truthTrace = { x, y: yTrue, name: "Target", mode: "lines", line: { width: 3 } };
   const approxTrace = { x, y: yPred, name: "Approximation", mode: "lines", line: { dash: "dot", width: 3 } };
-
-  const layout = {
+  const layoutMain = {
     margin: { t: 20, r: 10, b: 40, l: 50 },
     xaxis: { title: "x ∈ [0, 1]" },
     yaxis: { title: "f(x)" },
     legend: { orientation: "h", x: 0, y: 1.15 },
   };
+  Plotly.react(els.chart, [truthTrace, approxTrace], layoutMain, { responsive: true });
 
-  Plotly.react(els.chart, [truthTrace, approxTrace], layout, { responsive: true });
+  // --- Residuals chart ---
+  const residuals = yTrue.map((yt, i) => yt - yPred[i]);
+  const zeroLine = new Array(residuals.length).fill(0);
+  const residualTrace = { x, y: residuals, name: "Residual", mode: "lines", line: { width: 2 } };
+  const zeroTrace = { x, y: zeroLine, name: "0", mode: "lines", line: { width: 1, dash: "dot" } };
+  const layoutRes = {
+    margin: { t: 10, r: 10, b: 40, l: 50 },
+    xaxis: { title: "x" },
+    yaxis: { title: "f(x) − ŷ(x)" },
+    showlegend: false,
+  };
+  Plotly.react(els.residual, [residualTrace, zeroTrace], layoutRes, { responsive: true });
 }
 
 // Debounce to keep UI snappy

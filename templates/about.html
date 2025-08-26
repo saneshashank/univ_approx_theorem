@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Explanation — Universal Approximation Playground</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <nav class="bg-white border-b border-slate-200">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="font-bold">UAT Playground</a>
+      <a href="/" class="text-sm text-slate-600 hover:text-slate-900">Back to Home</a>
+    </div>
+  </nav>
+
+  <main class="max-w-4xl mx-auto px-4 py-8 prose prose-slate">
+    <h1>What this app illustrates</h1>
+    <p>
+      The <strong>Universal Approximation Theorem (UAT)</strong> states that a feed-forward neural
+      network with a <em>single hidden layer</em> and a <em>non-polynomial activation</em>
+      (e.g., sigmoid, tanh, ReLU) can approximate any <strong>continuous</strong> function on a
+      compact domain (like [0, 1]) to arbitrary accuracy—given enough hidden units.
+    </p>
+
+    <h2>Why go deep?</h2>
+    <p>
+      Although UAT only needs one hidden layer, <strong>deep networks</strong> can represent some
+      functions much more <em>efficiently</em> (fewer total neurons) thanks to <em>compositionality</em>:
+      early layers build simple features that later layers combine into more complex patterns.
+    </p>
+
+    <h2>What the app does</h2>
+    <ol>
+      <li><strong>Fix random hidden layers.</strong> We draw random weights/biases for 1–10 hidden layers.</li>
+      <li><strong>Compute random nonlinear features</strong> &phi;(x) by forwarding x through those layers.</li>
+      <li><strong>Fit a linear readout in closed form</strong> (ridge regression) on top of those features:</li>
+    </ol>
+
+    <pre><code>w = argmin_w ||Φ w − y||² + λ||w||²
+  ⇒  w = (ΦᵀΦ + λI)⁻¹ Φᵀ y</code></pre>
+
+    <p>
+      This is the <strong>closed-form approximation</strong>:
+      we don’t train hidden layers; we only solve for the output weights <code>w</code> using a matrix inverse.
+      This idea is known as <em>Random Kitchen Sinks</em> (RKS) or <em>Extreme Learning Machine</em> (ELM).
+    </p>
+
+    <h2>Reading the charts</h2>
+    <ul>
+      <li><strong>Top chart</strong>: target function vs. network approximation.</li>
+      <li><strong>Residuals</strong>: shows f(x) − ŷ(x). You want residuals near zero and without structure.</li>
+      <li><strong>MSE</strong>: average squared error across the evaluation grid.</li>
+    </ul>
+
+    <h2>What to try</h2>
+    <ul>
+      <li>Increase <em>depth</em> with modest per-layer widths and compare to a single wide layer.</li>
+      <li>Switch activations (tanh, ReLU, sigmoid) and observe differences.</li>
+      <li>Use <em>square wave</em> (discontinuous) to see why UAT is about continuous functions (uniform convergence fails).</li>
+      <li>Add <em>noise</em> to the training targets to see the regularization effect of λ.</li>
+    </ul>
+
+    <h2>Limitations</h2>
+    <ul>
+      <li>Random features need enough width/depth to be expressive for your chosen function.</li>
+      <li>Closed-form solve scales roughly with feature count; we keep sizes modest for interactivity.</li>
+      <li>This is a visualization tool; not a replacement for full training when you need maximum accuracy.</li>
+    </ul>
+
+    <p class="text-sm text-slate-500">
+      Built with Flask, NumPy, Tailwind, and Plotly.
+    </p>
+  </main>
+</body>
+</html>

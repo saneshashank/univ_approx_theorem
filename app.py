@@ -1,7 +1,7 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, url_for
 import numpy as np
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder="templates", static_folder="static")
 
 # -------- Target functions --------
 def f_sine(x):   return np.sin(2 * np.pi * x)
@@ -31,37 +31,25 @@ ACTIVATIONS = {
 
 # ---- Utilities ----
 def parse_layers(s: str):
-    """
-    Parse comma-separated widths -> list[int], enforce 1..2048 per layer and depth <= 10.
-    """
     try:
         parts = [p.strip() for p in s.split(",") if p.strip()]
         if not parts:
             return [64]
         widths = []
-        for p in parts[:10]:  # cap depth to 10
-            w = int(p)
-            if w < 1:
-                w = 1
-            if w > 2048:
-                w = 2048
+        for p in parts[:10]:
+            w = max(1, min(2048, int(p)))
             widths.append(w)
         return widths
     except Exception:
         return None
 
 def he_scale(fan_in, act_key):
-    # Reasonable default scales so different activations behave nicely
     if act_key == "relu":
         return np.sqrt(2.0 / max(1, fan_in))
-    else:  # tanh / sigmoid
+    else:
         return 1.0 / np.sqrt(max(1, fan_in))
 
 def init_random_params(layer_sizes, act_key, rng):
-    """
-    Build a stack of (W, b) for a network mapping R^1 -> R^{layer_sizes[-1]} features.
-    Returns: list of (W, b), where W: (in_dim, out_dim), b: (out_dim,)
-    """
     params = []
     in_dim = 1
     for width in layer_sizes:
@@ -73,30 +61,21 @@ def init_random_params(layer_sizes, act_key, rng):
     return params
 
 def forward_features(x, params, act_fn):
-    """
-    Forward pass through all hidden layers to produce random features.
-    x: (N,)
-    returns Phi: (N, last_width)
-    """
-    H = x.reshape(-1, 1)  # (N, 1)
+    H = x.reshape(-1, 1)
     for (W, b) in params:
-        H = act_fn(H @ W + b)  # broadcast b
+        H = act_fn(H @ W + b)
     return H
 
 def fit_ridge_closed_form(Phi, y, lam):
-    """
-    Ridge regression on top of features (with bias).
-    """
     N, W = Phi.shape
-    Phi_aug = np.concatenate([np.ones((N, 1)), Phi], axis=1)  # bias term
+    Phi_aug = np.concatenate([np.ones((N, 1)), Phi], axis=1)
     A = Phi_aug.T @ Phi_aug + lam * np.eye(W + 1)
     b = Phi_aug.T @ y
     w = np.linalg.solve(A, b)
-    return w  # includes bias as w[0]
+    return w
 
 def predict_with_weights(Phi, w):
-    N, W = Phi.shape
-    Phi_aug = np.concatenate([np.ones((N, 1)), Phi], axis=1)
+    Phi_aug = np.concatenate([np.ones((Phi.shape[0], 1)), Phi], axis=1)
     return Phi_aug @ w
 
 def make_grid(n=500):
@@ -110,9 +89,12 @@ def index():
         activations={k: v[0] for k, v in ACTIVATIONS.items()},
     )
 
+@app.route("/about")
+def about():
+    return render_template("about.html")
+
 @app.route("/approximate")
 def approximate():
-    # --- Parse UI params ---
     target_key = request.args.get("target", "sine")
     act_key    = request.args.get("activation", "tanh")
     layers_str = request.args.get("layers", "64")
@@ -133,20 +115,15 @@ def approximate():
     act_name, act_fn = ACTIVATIONS[act_key]
     rng = np.random.default_rng(seed)
 
-    # Training data
     x_train = np.linspace(0.0, 1.0, 512)
     y_train = f(x_train)
     if noise_std > 0:
         y_train = y_train + rng.normal(0, noise_std, size=y_train.shape)
 
-    # Initialize a fixed random deep net and reuse it for grid eval
     params = init_random_params(layer_sizes, act_key, rng)
-
-    # Fit ridge on top of deep random features
     Phi_train = forward_features(x_train, params, act_fn)
     w = fit_ridge_closed_form(Phi_train, y_train, lam)
 
-    # Evaluate on a grid for plotting
     x_grid = make_grid(500)
     y_true = f(x_grid)
     Phi_grid = forward_features(x_grid, params, act_fn)
@@ -171,5 +148,4 @@ def approximate():
     })
 
 if __name__ == "__main__":
-    # Run in dev mode; for production use a proper WSGI server
     app.run(host="127.0.0.1", port=5000, debug=True)
