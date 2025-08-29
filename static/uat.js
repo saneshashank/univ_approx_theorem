@@ -24,37 +24,31 @@ const els = {
 };
 
 // ===== State =====
-let layerWidths = [64]; // start with one hidden layer
+let layerWidths = [64]; // one hidden layer
 
 // ===== Helpers =====
-function lamFromSlider(v) {
-  return Math.pow(10, parseFloat(v));
-}
-function updateLamLabel() {
-  els.lamVal.textContent = `1e${els.lam.value}`;
-}
-function setDepthBadge() {
-  els.depthBadge.textContent = layerWidths.length.toString();
-}
+function lamFromSlider(v) { return Math.pow(10, parseFloat(v)); }
+function updateLamLabel() { els.lamVal.textContent = `1e${els.lam.value}`; }
+function setDepthBadge() { els.depthBadge.textContent = layerWidths.length.toString(); }
 
-// Render one layer row
+// Render one layer row (dark card)
 function layerRow(i, width) {
   const id = `layer-${i}`;
   return `
-    <div class="rounded-xl border border-slate-200 p-3">
+    <div class="rounded-xl border border-slate-700 bg-slate-900 p-3">
       <div class="flex items-center justify-between">
-        <div class="text-sm font-semibold">Layer ${i + 1}</div>
+        <div class="text-sm font-semibold text-slate-200">Layer ${i + 1}</div>
         <div class="flex items-center gap-2">
-          <span class="text-xs text-slate-500">width:
-            <span id="${id}-val" class="font-semibold">${width}</span>
+          <span class="text-xs text-slate-400">width:
+            <span id="${id}-val" class="font-semibold text-slate-100">${width}</span>
           </span>
-          <button data-remove="${i}"
-            class="text-xs px-2 py-1 rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200">
+          <button data-remove="${i}" type="button"
+            class="text-xs px-2 py-1 rounded-lg bg-rose-900/40 text-rose-200 hover:bg-rose-800/60">
             Remove
           </button>
         </div>
       </div>
-      <input id="${id}" type="range" min="1" max="2048" value="${width}" class="w-full mt-2">
+      <input id="${id}" type="range" min="1" max="2048" value="${width}" class="w-full mt-2 accent-indigo-500">
     </div>
   `;
 }
@@ -91,7 +85,7 @@ function renderLayers() {
 
 // Presets
 function applyPreset(widths) {
-  layerWidths = widths.slice(0, 10); // cap to 10 layers
+  layerWidths = widths.slice(0, 10);
   renderLayers();
   fetchApprox();
 }
@@ -127,39 +121,53 @@ async function fetchApprox() {
   const yTrue = data.y_true;
   const yPred = data.y_pred;
 
-  // --- Main chart ---
+  // Plotly dark palette
+  const axisCommon = {
+    tickcolor: "#94a3b8",
+    tickfont: { color: "#cbd5e1" },
+    gridcolor: "#334155",
+    zerolinecolor: "#475569",
+    linecolor: "#475569",
+  };
+  const layoutMain = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#e5e7eb" },
+    margin: { t: 20, r: 10, b: 40, l: 50 },
+    xaxis: { title: "x ∈ [0, 1]", ...axisCommon },
+    yaxis: { title: "f(x)", ...axisCommon },
+    legend: { orientation: "h", x: 0, y: 1.15, font: { color: "#e5e7eb" } },
+  };
+
   const truthTrace = { x, y: yTrue, name: "Target", mode: "lines", line: { width: 3 } };
   const approxTrace = { x, y: yPred, name: "Approximation", mode: "lines", line: { dash: "dot", width: 3 } };
-  const layoutMain = {
-    margin: { t: 20, r: 10, b: 40, l: 50 },
-    xaxis: { title: "x ∈ [0, 1]" },
-    yaxis: { title: "f(x)" },
-    legend: { orientation: "h", x: 0, y: 1.15 },
-  };
   Plotly.react(els.chart, [truthTrace, approxTrace], layoutMain, { responsive: true });
 
-  // --- Residuals chart ---
+  // Residuals
   const residuals = yTrue.map((yt, i) => yt - yPred[i]);
   const zeroLine = new Array(residuals.length).fill(0);
-  const residualTrace = { x, y: residuals, name: "Residual", mode: "lines", line: { width: 2 } };
-  const zeroTrace = { x, y: zeroLine, name: "0", mode: "lines", line: { width: 1, dash: "dot" } };
   const layoutRes = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#e5e7eb" },
     margin: { t: 10, r: 10, b: 40, l: 50 },
-    xaxis: { title: "x" },
-    yaxis: { title: "f(x) − ŷ(x)" },
+    xaxis: { title: "x", ...axisCommon },
+    yaxis: { title: "f(x) − ŷ(x)", ...axisCommon },
     showlegend: false,
   };
+  const residualTrace = { x, y: residuals, name: "Residual", mode: "lines", line: { width: 2 } };
+  const zeroTrace = { x, y: zeroLine, name: "0", mode: "lines", line: { width: 1, dash: "dot" } };
   Plotly.react(els.residual, [residualTrace, zeroTrace], layoutRes, { responsive: true });
 }
 
-// Debounce to keep UI snappy
+// Debounce
 let t;
 function scheduleFetch() {
   clearTimeout(t);
   t = setTimeout(fetchApprox, 80);
 }
 
-// ===== Init & Bindings =====
+// Bindings & bootstrap
 function bindGlobal() {
   ["change", "input"].forEach(evt => {
     els.target.addEventListener(evt, scheduleFetch);
@@ -177,7 +185,7 @@ function bindGlobal() {
   });
 
   els.clearLayers.addEventListener("click", () => {
-    layerWidths = [64]; // keep at least one layer
+    layerWidths = [64];
     renderLayers();
     fetchApprox();
   });
@@ -199,5 +207,4 @@ function bootstrap() {
   fetchApprox();
 }
 
-// Kick off
 bootstrap();
