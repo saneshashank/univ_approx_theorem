@@ -34,9 +34,10 @@ This app illustrates that principle in practice:
 - Features are passed forward → producing nonlinear basis functions φ(x).
 - A **linear readout** is trained in closed form:
 
-\[
-w = (\Phi^\top \Phi + \lambda I)^{-1} \Phi^\top y
-\]
+$$
+w = (\Phi^T \Phi + \lambda I)^{-1} \Phi^T y
+$$
+
 
 This is the **Extreme Learning Machine / Random Kitchen Sinks** approach.  
 You can see how increasing depth and width reduces approximation error.
